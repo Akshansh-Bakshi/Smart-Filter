@@ -1,0 +1,5 @@
+{
+  "name": "Smart Filter",
+  "description": "An AI-powered spreadsheet tool with statistical visualization and history tracking, powered by Gemini.",
+  "requestFramePermissions": []
+}
