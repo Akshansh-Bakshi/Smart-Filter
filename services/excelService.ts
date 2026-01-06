@@ -14,20 +14,19 @@ export const parseExcelFile = (file: File): Promise<{ headers: string[], rows: S
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // Convert to array of arrays first to identify headers reliably
-        const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        // Convert to objects with defval to ensure all keys exist in all rows
+        // Using defval: "" ensures that keys are created even for empty cells
+        const rows = XLSX.utils.sheet_to_json(worksheet, { defval: "" }) as SheetRow[];
         
-        if (rawData.length === 0) {
+        if (rows.length === 0) {
           resolve({ headers: [], rows: [] });
           return;
         }
 
-        // Get actual headers from first row, cleaning up any empty ones
-        const headers = (rawData[0] as any[]).map(h => h?.toString().trim()).filter(h => !!h);
-        
-        // Convert to objects using the first row as the header range
-        // This ensures the object keys match the header strings exactly
-        const rows = XLSX.utils.sheet_to_json(worksheet, { defval: null }) as SheetRow[];
+        // Extract headers directly from the first row's keys to ensure 100% alignment
+        // between the headers array and the object property names.
+        // We filter out internal XLSX keys (starting with __) unless they are valid headers.
+        const headers = Object.keys(rows[0]).filter(key => !key.startsWith('__EMPTY'));
 
         resolve({ headers, rows });
       } catch (err) {

@@ -20,19 +20,22 @@ export const processRequirements = async (
 
     CRITICAL RULES for 'code' field:
     1. The 'code' MUST be a valid JavaScript function body.
-    2. ALWAYS use bracket notation to access properties to avoid issues with spaces or special characters: row['Column Name'].
+    2. ALWAYS use bracket notation to access properties: row['Column Name'].
     3. Ensure robust type handling: 
        - For numbers: use parseFloat(row['Col']) or Number(row['Col']).
        - For text: use (row['Col'] || '').toString().toLowerCase().includes('search term').
-    4. Handle null/undefined values gracefully.
-    5. The code MUST contain a 'return' statement returning a boolean.
-    6. Example: "const val = parseFloat(row['Revenue']); return !isNaN(val) && val > 50000;"
+    4. The code MUST contain a 'return' statement returning a boolean.
+
+    COLUMN SELECTION RULES:
+    1. IMPORTANT: The 'columns' field MUST include ALL available headers [${headers.join(', ')}] UNLESS the user explicitly asks to "only show", "select", or "hide" specific columns.
+    2. Never drop columns like 'Designation', 'ID', etc., unless specifically requested.
+    3. Use the exact casing for headers as provided in the Available Headers list.
 
     Output Schema (JSON):
     - code: (string) The JS code body.
-    - columns: (array of strings) List of headers the user wants to keep/display. Use exact casing from the "Available Headers" list.
-    - explanation: (string) A clear, professional summary of the filtering logic.
-    - error: (string, optional) Use this if the prompt is nonsensical or refers to columns that don't exist.
+    - columns: (array of strings) Headers to display. Default to ALL available headers if not specified.
+    - explanation: (string) A clear summary of the logic.
+    - error: (string, optional) If requirements are nonsensical.
   `;
 
   try {

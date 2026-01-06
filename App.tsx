@@ -66,7 +66,6 @@ const App: React.FC = () => {
 
   const resetData = () => {
     if (!data) return;
-    // Get headers from first row of original data to ensure we restore correctly
     const originalHeaders = data.originalRows.length > 0 ? Object.keys(data.originalRows[0]) : data.headers;
     setData({
       ...data,
@@ -99,31 +98,27 @@ const App: React.FC = () => {
 
       if (result.code) {
         try {
-          // Wrap code in a return if it's just an expression, though the prompt requires a return.
           const codeToExec = result.code.includes('return') ? result.code : `return (${result.code});`;
           const filterFn = new Function('row', codeToExec);
           
           filtered = filtered.filter(row => {
             try {
-              // Ensure we return a strict boolean
               return !!filterFn(row);
             } catch (e) {
-              console.warn("Row filtering failed for record:", row, e);
               return false; 
             }
           });
         } catch (evalErr) {
-          console.error("Evaluation Error:", evalErr);
           throw new Error("Smart Filter generated invalid logic. Try rephrasing your request.");
         }
       }
 
-      // Sync headers based on AI selection
+      // Final Column Logic: Ensure 'Designation' or any other header isn't lost
+      // unless the user explicitly requested it.
       let finalHeaders = data.headers;
       if (result.columns && result.columns.length > 0) {
-        // Case-insensitive matching to actual headers
         const matched = result.columns.map((c: string) => 
-          data.headers.find(h => h.toLowerCase() === c.toLowerCase())
+          data.headers.find(h => h.toLowerCase() === c.trim().toLowerCase())
         ).filter((h: string | undefined): h is string => !!h);
         
         if (matched.length > 0) {
@@ -145,7 +140,6 @@ const App: React.FC = () => {
       setActiveTab('table');
 
     } catch (err: any) {
-      console.error("Filter Pipeline Error:", err);
       setError(err.message || "An unexpected error occurred while processing your data.");
       setStatus(AppStatus.READY);
     }
@@ -235,10 +229,6 @@ const App: React.FC = () => {
                     <span className="text-sm text-slate-600 font-medium">Visible Columns</span>
                     <span className="text-lg font-bold text-slate-900">{data.headers.length}</span>
                   </div>
-                  <div className="flex justify-between items-end border-b border-slate-50 pb-2">
-                    <span className="text-sm text-slate-600 font-medium">Total Original</span>
-                    <span className="text-lg font-bold text-slate-900">{data.originalRows.length}</span>
-                  </div>
                 </div>
                 <button 
                   onClick={() => setData(null)}
@@ -254,7 +244,7 @@ const App: React.FC = () => {
                 </h3>
                 <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
                   {history.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic">History will appear here after you apply a filter.</p>
+                    <p className="text-xs text-slate-500 italic">History will appear here after filter application.</p>
                   ) : (
                     history.map((item) => (
                       <div 
@@ -287,7 +277,7 @@ const App: React.FC = () => {
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
-                      placeholder="e.g. 'Show only electronics sold in May' or 'Only show Name and Price where Price > 100'"
+                      placeholder="e.g. 'Show only electronics sold in May'"
                       className="w-full h-full min-h-[100px] bg-transparent p-6 text-lg font-medium text-slate-800 placeholder:text-slate-300 focus:outline-none resize-none"
                     />
                     {status === AppStatus.PROCESSING_AI && (
@@ -371,9 +361,9 @@ const App: React.FC = () => {
                       <SearchX size={64} strokeWidth={1.5} className="text-slate-200" />
                       <div className="text-center">
                         <p className="text-lg font-bold text-slate-600 tracking-tight">Zero matching records found</p>
-                        <p className="text-sm text-slate-400">Try rephrasing your requirements or broadening the search.</p>
+                        <p className="text-sm text-slate-400">Try rephrasing your requirements.</p>
                         <button onClick={resetData} className="mt-4 px-4 py-2 bg-slate-100 text-slate-900 rounded-lg text-xs font-bold hover:bg-slate-200 transition-all">
-                          Restore Original Data
+                          Restore Data
                         </button>
                       </div>
                     </div>
