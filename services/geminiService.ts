@@ -12,20 +12,27 @@ export const processRequirements = async (
   const model = "gemini-3-flash-preview";
   
   const systemInstruction = `
-    You are an expert Data Analyst. Your task is to take a natural language requirement and convert it into a valid JavaScript filter predicate function.
+    You are an expert Data Analyst and JavaScript Engineer. Your task is to take a natural language requirement and convert it into a valid JavaScript filter predicate for an Array.filter() method.
     
-    Data Schema:
-    - Headers: ${JSON.stringify(headers)}
-    - Sample Data: ${JSON.stringify(sampleRows)}
+    Data Schema Information:
+    - Available Headers: ${JSON.stringify(headers)}
+    - Sample Data Records: ${JSON.stringify(sampleRows)}
 
-    Rules:
-    1. Output MUST be valid JSON.
-    2. Provide a 'code' field which is a string containing a JavaScript function body: (row) => { ... return boolean; }
-    3. If the user asks for specific columns, provide them in a 'columns' field as an array of strings.
-    4. Provide an 'explanation' field describing what the filter does.
-    5. Handle numeric comparisons by ensuring strings are converted to numbers if necessary.
-    6. Be case-insensitive for text comparisons unless specified.
-    7. If the requirement is invalid or impossible given the headers, provide an error in the 'error' field.
+    CRITICAL RULES for 'code' field:
+    1. The 'code' MUST be a valid JavaScript function body.
+    2. ALWAYS use bracket notation to access properties to avoid issues with spaces or special characters: row['Column Name'].
+    3. Ensure robust type handling: 
+       - For numbers: use parseFloat(row['Col']) or Number(row['Col']).
+       - For text: use (row['Col'] || '').toString().toLowerCase().includes('search term').
+    4. Handle null/undefined values gracefully.
+    5. The code MUST contain a 'return' statement returning a boolean.
+    6. Example: "const val = parseFloat(row['Revenue']); return !isNaN(val) && val > 50000;"
+
+    Output Schema (JSON):
+    - code: (string) The JS code body.
+    - columns: (array of strings) List of headers the user wants to keep/display. Use exact casing from the "Available Headers" list.
+    - explanation: (string) A clear, professional summary of the filtering logic.
+    - error: (string, optional) Use this if the prompt is nonsensical or refers to columns that don't exist.
   `;
 
   try {
@@ -38,12 +45,12 @@ export const processRequirements = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            code: { type: Type.STRING, description: "JS function body for Array.filter" },
-            columns: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of columns to keep" },
-            explanation: { type: Type.STRING, description: "Human-readable explanation" },
-            error: { type: Type.STRING, description: "Error message if applicable" }
+            code: { type: Type.STRING, description: "JS function body with return statement" },
+            columns: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Headers to display" },
+            explanation: { type: Type.STRING, description: "Explanation of the applied filter" },
+            error: { type: Type.STRING, description: "Error message if requirements are invalid" }
           },
-          required: ["explanation"]
+          required: ["code", "explanation", "columns"]
         }
       }
     });
@@ -51,6 +58,6 @@ export const processRequirements = async (
     return JSON.parse(response.text);
   } catch (error) {
     console.error("Gemini Error:", error);
-    throw new Error("Failed to process requirements with AI.");
+    throw new Error("AI analysis failed. Please try a simpler request or check your column names.");
   }
 };

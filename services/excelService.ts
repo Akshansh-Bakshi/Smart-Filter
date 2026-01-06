@@ -1,7 +1,7 @@
 
 import { SheetRow } from "../types";
 
-// Note: XLSX is loaded via script tag in index.html for simplicity in this environment
+// Note: XLSX is loaded via script tag in index.html
 declare const XLSX: any;
 
 export const parseExcelFile = (file: File): Promise<{ headers: string[], rows: SheetRow[] }> => {
@@ -14,16 +14,20 @@ export const parseExcelFile = (file: File): Promise<{ headers: string[], rows: S
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // Convert to JSON
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        // Convert to array of arrays first to identify headers reliably
+        const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
         
-        if (jsonData.length === 0) {
+        if (rawData.length === 0) {
           resolve({ headers: [], rows: [] });
           return;
         }
 
-        const headers = jsonData[0] as string[];
-        const rows = XLSX.utils.sheet_to_json(worksheet) as SheetRow[];
+        // Get actual headers from first row, cleaning up any empty ones
+        const headers = (rawData[0] as any[]).map(h => h?.toString().trim()).filter(h => !!h);
+        
+        // Convert to objects using the first row as the header range
+        // This ensures the object keys match the header strings exactly
+        const rows = XLSX.utils.sheet_to_json(worksheet, { defval: null }) as SheetRow[];
 
         resolve({ headers, rows });
       } catch (err) {

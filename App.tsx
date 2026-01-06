@@ -1,21 +1,19 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FileUp, 
-  Filter, 
   Download, 
   RotateCcw, 
   Sparkles, 
   Table as TableIcon, 
-  ChevronRight,
   Loader2,
   AlertCircle,
   CheckCircle2,
   XCircle,
   BarChart3,
   History,
-  LayoutDashboard,
-  Trash2
+  Trash2,
+  SearchX
 } from 'lucide-react';
 import { AppStatus, SheetData, SheetRow } from './types';
 import { parseExcelFile, exportToExcel } from './services/excelService';
@@ -31,7 +29,7 @@ const App: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'table' | 'viz' | 'history'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'viz'>('table');
 
   // Splash screen timeout
   useEffect(() => {
@@ -61,16 +59,18 @@ const App: React.FC = () => {
       setStatus(AppStatus.READY);
     } catch (err) {
       console.error(err);
-      setError("Failed to parse the Excel file. Please ensure it's a valid .xlsx or .xls file.");
+      setError("Failed to parse the file. Please use a valid Excel or CSV document.");
       setStatus(AppStatus.ERROR);
     }
   };
 
   const resetData = () => {
     if (!data) return;
+    // Get headers from first row of original data to ensure we restore correctly
+    const originalHeaders = data.originalRows.length > 0 ? Object.keys(data.originalRows[0]) : data.headers;
     setData({
       ...data,
-      headers: [...(data.originalRows[0] ? Object.keys(data.originalRows[0]) : [])],
+      headers: originalHeaders,
       rows: [...data.originalRows]
     });
     setAiExplanation(null);
@@ -99,20 +99,36 @@ const App: React.FC = () => {
 
       if (result.code) {
         try {
-          const filterFn = new Function('row', `try { ${result.code} } catch(e) { return true; }`);
+          // Wrap code in a return if it's just an expression, though the prompt requires a return.
+          const codeToExec = result.code.includes('return') ? result.code : `return (${result.code});`;
+          const filterFn = new Function('row', codeToExec);
+          
           filtered = filtered.filter(row => {
-            const fnResult = filterFn(row);
-            return typeof fnResult === 'boolean' ? fnResult : true;
+            try {
+              // Ensure we return a strict boolean
+              return !!filterFn(row);
+            } catch (e) {
+              console.warn("Row filtering failed for record:", row, e);
+              return false; 
+            }
           });
         } catch (evalErr) {
-          throw new Error("The generated filter logic could not be executed.");
+          console.error("Evaluation Error:", evalErr);
+          throw new Error("Smart Filter generated invalid logic. Try rephrasing your request.");
         }
       }
 
+      // Sync headers based on AI selection
       let finalHeaders = data.headers;
       if (result.columns && result.columns.length > 0) {
-        const selectedCols = result.columns.filter((c: string) => data.headers.includes(c));
-        if (selectedCols.length > 0) finalHeaders = selectedCols;
+        // Case-insensitive matching to actual headers
+        const matched = result.columns.map((c: string) => 
+          data.headers.find(h => h.toLowerCase() === c.toLowerCase())
+        ).filter((h: string | undefined): h is string => !!h);
+        
+        if (matched.length > 0) {
+          finalHeaders = matched;
+        }
       }
 
       const updatedData: SheetData = {
@@ -123,13 +139,14 @@ const App: React.FC = () => {
       };
 
       setData(updatedData);
-      setHistory(prev => [updatedData, ...prev.slice(0, 9)]); // Keep last 10
+      setHistory(prev => [updatedData, ...prev.slice(0, 9)]); 
       setAiExplanation(result.explanation);
       setStatus(AppStatus.READY);
       setActiveTab('table');
 
     } catch (err: any) {
-      setError(err.message || "An unexpected error occurred during processing.");
+      console.error("Filter Pipeline Error:", err);
+      setError(err.message || "An unexpected error occurred while processing your data.");
       setStatus(AppStatus.READY);
     }
   };
@@ -160,7 +177,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -178,7 +194,7 @@ const App: React.FC = () => {
                 className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-all font-bold text-sm shadow-lg shadow-slate-200"
               >
                 <Download size={16} />
-                <span className="hidden sm:inline">Export</span>
+                <span className="hidden sm:inline">Export Results</span>
               </button>
             )}
           </div>
@@ -198,44 +214,47 @@ const App: React.FC = () => {
               <div className="w-24 h-24 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-8 group-hover:scale-110 transition-transform rotate-3 group-hover:rotate-0">
                 {status === AppStatus.LOADING_FILE ? <Loader2 className="animate-spin" size={40} /> : <FileUp size={40} />}
               </div>
-              <h2 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">Start with your data</h2>
-              <p className="text-slate-500 mb-8 text-lg">Upload an Excel or CSV file to unlock AI-powered insights.</p>
+              <h2 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">Upload Spreadsheet</h2>
+              <p className="text-slate-500 mb-8 text-lg">Drop your CSV or Excel file here to start filtering with AI intelligence.</p>
               <div className="inline-flex items-center gap-2 px-8 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all">
-                Select Spreadsheet
+                Browse Files
               </div>
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            {/* Sidebar Controls */}
             <div className="lg:col-span-1 flex flex-col gap-6">
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Quick Stats</h3>
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Current View</h3>
                 <div className="space-y-4">
                   <div className="flex justify-between items-end border-b border-slate-50 pb-2">
-                    <span className="text-sm text-slate-600 font-medium">Rows</span>
+                    <span className="text-sm text-slate-600 font-medium">Matching Rows</span>
                     <span className="text-lg font-bold text-slate-900">{data.rows.length}</span>
                   </div>
                   <div className="flex justify-between items-end border-b border-slate-50 pb-2">
-                    <span className="text-sm text-slate-600 font-medium">Cols</span>
+                    <span className="text-sm text-slate-600 font-medium">Visible Columns</span>
                     <span className="text-lg font-bold text-slate-900">{data.headers.length}</span>
+                  </div>
+                  <div className="flex justify-between items-end border-b border-slate-50 pb-2">
+                    <span className="text-sm text-slate-600 font-medium">Total Original</span>
+                    <span className="text-lg font-bold text-slate-900">{data.originalRows.length}</span>
                   </div>
                 </div>
                 <button 
                   onClick={() => setData(null)}
                   className="w-full mt-6 py-3 border border-slate-200 text-slate-500 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
                 >
-                  <RotateCcw size={14} /> New Project
+                  <RotateCcw size={14} /> Upload New
                 </button>
               </div>
 
               <div className="bg-slate-900 rounded-2xl p-6 shadow-xl text-white">
                 <h3 className="text-xs font-black text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                  <History size={14} /> History
+                  <History size={14} /> Filter History
                 </h3>
                 <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
                   {history.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic">No previous filters yet.</p>
+                    <p className="text-xs text-slate-500 italic">History will appear here after you apply a filter.</p>
                   ) : (
                     history.map((item) => (
                       <div 
@@ -247,7 +266,7 @@ const App: React.FC = () => {
                         }}
                       >
                         <p className="text-[10px] text-slate-500 mb-1">{new Date(item.timestamp).toLocaleTimeString()}</p>
-                        <p className="text-xs font-bold truncate pr-4">{item.query || 'Reset'}</p>
+                        <p className="text-xs font-bold truncate pr-4">{item.query || 'Selection'}</p>
                         <button 
                           onClick={(e) => { e.stopPropagation(); deleteHistoryItem(item.id); }}
                           className="absolute top-2 right-2 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -261,23 +280,21 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Main Workspace */}
             <div className="lg:col-span-3 flex flex-col gap-6">
-              {/* AI Prompt Area */}
-              <div className="bg-white rounded-3xl border-2 border-slate-50 p-1 shadow-sm">
+              <div className="bg-white rounded-3xl border-2 border-slate-50 p-1 shadow-sm relative overflow-hidden">
                 <div className="flex flex-col sm:flex-row gap-2">
                   <div className="flex-1 relative">
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
-                      placeholder="Tell Smart Filter what to do... (e.g., 'Only show items with high margins')"
+                      placeholder="e.g. 'Show only electronics sold in May' or 'Only show Name and Price where Price > 100'"
                       className="w-full h-full min-h-[100px] bg-transparent p-6 text-lg font-medium text-slate-800 placeholder:text-slate-300 focus:outline-none resize-none"
                     />
                     {status === AppStatus.PROCESSING_AI && (
-                       <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center rounded-2xl z-20">
+                       <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex items-center justify-center rounded-2xl z-20">
                          <div className="flex items-center gap-3 px-6 py-3 bg-slate-900 rounded-full text-white shadow-xl">
                            <Loader2 className="animate-spin" size={20} />
-                           <span className="font-bold text-sm">Gemini is Thinking...</span>
+                           <span className="font-bold text-sm">Analyzing Requirements...</span>
                          </div>
                        </div>
                     )}
@@ -289,59 +306,78 @@ const App: React.FC = () => {
                       className="h-full w-full sm:w-32 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 text-white rounded-2xl flex flex-col items-center justify-center gap-2 p-4 transition-all shadow-lg shadow-indigo-100"
                     >
                       <Sparkles size={24} className={status === AppStatus.PROCESSING_AI ? 'animate-pulse' : ''} />
-                      <span className="text-xs font-black uppercase">Run</span>
+                      <span className="text-xs font-black uppercase">Filter</span>
                     </button>
                   </div>
                 </div>
               </div>
 
               {error && (
-                <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-4 text-red-700 animate-in zoom-in duration-200">
+                <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-4 text-red-700 animate-in slide-in-from-top duration-200">
                   <XCircle className="shrink-0 mt-0.5" size={20} />
                   <div>
-                    <h4 className="font-black text-sm uppercase">Processing Error</h4>
+                    <h4 className="font-black text-sm uppercase">Smart Filter Error</h4>
                     <p className="text-sm">{error}</p>
                   </div>
                 </div>
               )}
 
               {aiExplanation && !error && (
-                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-start gap-4 text-emerald-800 animate-in slide-in-from-left duration-300">
+                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-start gap-4 text-emerald-800 animate-in slide-in-from-bottom duration-300">
                   <CheckCircle2 className="shrink-0 mt-0.5" size={20} />
-                  <div>
-                    <h4 className="font-black text-sm uppercase">Insight Generated</h4>
-                    <p className="text-sm font-medium">{aiExplanation}</p>
+                  <div className="flex-1">
+                    <h4 className="font-black text-sm uppercase">Insight Applied</h4>
+                    <p className="text-sm font-medium leading-tight">{aiExplanation}</p>
+                    <div className="mt-2 flex items-center gap-3">
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-200/50 rounded-full uppercase tracking-tighter">
+                        {data.rows.length} Matches
+                      </span>
+                      <button onClick={resetData} className="text-[10px] font-bold underline decoration-emerald-300 hover:text-emerald-900">
+                        Clear Filters
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Result Area Tabs */}
               <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col min-h-[500px]">
                 <div className="flex border-b border-slate-100 bg-slate-50/50 p-2">
-                  {[
-                    { id: 'table', icon: <TableIcon size={16} />, label: 'Data Table' },
-                    { id: 'viz', icon: <BarChart3 size={16} />, label: 'Visual Statistics' },
-                  ].map(tab => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id as any)}
-                      className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all ${
-                        activeTab === tab.id 
-                        ? 'bg-white text-indigo-600 shadow-sm' 
-                        : 'text-slate-400 hover:text-slate-600'
-                      }`}
-                    >
-                      {tab.icon}
-                      {tab.label}
-                    </button>
-                  ))}
+                  <button
+                    onClick={() => setActiveTab('table')}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                      activeTab === 'table' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    <TableIcon size={16} /> Data Preview
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('viz')}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                      activeTab === 'viz' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    <BarChart3 size={16} /> Statistics
+                  </button>
                   <div className="ml-auto flex items-center px-4">
-                     <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Preview Mode</span>
+                     <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                       Live Dataset
+                     </span>
                   </div>
                 </div>
 
-                <div className="p-4 flex-1">
-                  {activeTab === 'table' ? (
+                <div className="p-4 flex-1 overflow-hidden flex flex-col">
+                  {data.rows.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-4 py-20">
+                      <SearchX size={64} strokeWidth={1.5} className="text-slate-200" />
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-slate-600 tracking-tight">Zero matching records found</p>
+                        <p className="text-sm text-slate-400">Try rephrasing your requirements or broadening the search.</p>
+                        <button onClick={resetData} className="mt-4 px-4 py-2 bg-slate-100 text-slate-900 rounded-lg text-xs font-bold hover:bg-slate-200 transition-all">
+                          Restore Original Data
+                        </button>
+                      </div>
+                    </div>
+                  ) : activeTab === 'table' ? (
                     <DataTable headers={data.headers} rows={data.rows} />
                   ) : (
                     <Visualization data={data.rows} headers={data.headers} />
